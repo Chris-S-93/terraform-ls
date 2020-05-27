@@ -11,6 +11,7 @@ import (
 
 type File interface {
 	BlockAtPosition(filesystem.FilePosition) (*hcllib.Block, hcllib.Pos, error)
+	TokenAtPosition(filesystem.FilePosition) (hclsyntax.Token, hcllib.Pos, error)
 }
 
 type file struct {
@@ -46,6 +47,24 @@ func (f *file) BlockAtPosition(filePos filesystem.FilePosition) (*hcllib.Block, 
 	}
 
 	return b, pos, nil
+}
+
+func (f *file) TokenAtPosition(filePos filesystem.FilePosition) (hclsyntax.Token, hcllib.Pos, error) {
+	tokens, diags := hclsyntax.LexConfig(f.content, f.filename, hcllib.InitialPos)
+	pos := filePos.Position()
+
+	for _, t := range tokens {
+		if t.Range.ContainsPos(pos) {
+			return t, pos, nil
+		}
+	}
+
+	var err error
+	if diags.HasErrors() {
+		err = diags
+	}
+
+	return hclsyntax.Token{}, pos, err
 }
 
 func (f *file) blockAtPosition(pos hcllib.Pos) (*hcllib.Block, error) {

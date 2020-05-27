@@ -7,6 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-ls/internal/filesystem"
 	"github.com/hashicorp/terraform-ls/internal/source"
 )
@@ -158,6 +159,112 @@ func TestFile_BlockAtPosition(t *testing.T) {
 			}
 
 			if diff := cmp.Diff(tc.expectedBlock, block, opts...); diff != "" {
+				t.Fatalf("Unexpected block difference: %s", diff)
+			}
+
+		})
+	}
+}
+
+func TestFile_TokenAtPosition(t *testing.T) {
+	testCases := []struct {
+		name string
+
+		content string
+		pos     hcl.Pos
+
+		expectedErr   error
+		expectedToken *hclsyntax.Token
+	}{
+		{
+			"incomplete keyword",
+			`pro`,
+			hcl.Pos{
+				Line:   1,
+				Column: 3,
+				Byte:   2,
+			},
+			nil,
+			&hclsyntax.Token{
+				Type:  hclsyntax.TokenIdent,
+				Bytes: []byte("pro"),
+				Range: hcl.Range{
+					Filename: "test.tf",
+					Start: hcl.Pos{
+						Line:   1,
+						Column: 1,
+						Byte:   0,
+					},
+					End: hcl.Pos{
+						Line:   1,
+						Column: 4,
+						Byte:   3,
+					},
+				},
+			},
+		},
+		{
+			"incomplete argument",
+			`provider "aws" {
+  re
+}
+`,
+			hcl.Pos{
+				Line:   2,
+				Column: 5,
+				Byte:   20,
+			},
+			nil,
+			&hclsyntax.Token{
+				Type:  hclsyntax.TokenIdent,
+				Bytes: []byte("re"),
+				Range: hcl.Range{
+					Filename: "test.tf",
+					Start: hcl.Pos{
+						Line:   2,
+						Column: 3,
+						Byte:   19,
+					},
+					End: hcl.Pos{
+						Line:   2,
+						Column: 5,
+						Byte:   21,
+					},
+				},
+			},
+		},
+	}
+
+	opts := cmp.Options{
+		cmpopts.IgnoreFields(hcl.Block{},
+			"Body", "DefRange", "TypeRange", "LabelRanges"),
+		cmpopts.IgnoreFields(hcl.Diagnostic{}, "Subject"),
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("%d-%s", i+1, tc.name), func(t *testing.T) {
+			fsFile := filesystem.NewFile("test.tf", []byte(tc.content))
+			f := NewFile(fsFile)
+			fp := &testPosition{
+				FileHandler: fsFile,
+				pos:         tc.pos,
+			}
+
+			block, _, err := f.TokenAtPosition(fp)
+			if err != nil {
+				if tc.expectedErr == nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(tc.expectedErr, err, opts...); diff != "" {
+					t.Fatalf("Error mismatch: %s", diff)
+				}
+				return
+			}
+			if tc.expectedErr != nil {
+				t.Fatalf("Expected error: %s", tc.expectedErr)
+			}
+
+			if diff := cmp.Diff(*tc.expectedToken, block, opts...); diff != "" {
 				t.Fatalf("Unexpected block difference: %s", diff)
 			}
 
