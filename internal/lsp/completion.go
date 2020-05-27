@@ -4,9 +4,10 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform-ls/internal/terraform/lang"
 	lsp "github.com/sourcegraph/go-lsp"
+	"strings"
 )
 
-func CompletionList(candidates lang.CompletionCandidates, pos hcl.Pos, caps lsp.TextDocumentClientCapabilities) lsp.CompletionList {
+func CompletionList(candidates lang.CompletionCandidates, pos hcl.Pos, caps lsp.TextDocumentClientCapabilities, prefix string) lsp.CompletionList {
 	snippetSupport := caps.Completion.CompletionItem.SnippetSupport
 	list := lsp.CompletionList{}
 
@@ -17,15 +18,18 @@ func CompletionList(candidates lang.CompletionCandidates, pos hcl.Pos, caps lsp.
 	cList := candidates.List()
 
 	list.IsIncomplete = !candidates.IsComplete()
-	list.Items = make([]lsp.CompletionItem, len(cList))
-	for i, c := range cList {
-		list.Items[i] = CompletionItem(c, pos, snippetSupport)
+	list.Items = make([]lsp.CompletionItem, 0)
+	for _, c := range cList {
+		item := CompletionItem(c, pos, snippetSupport, prefix)
+		if item != nil {
+			list.Items = append(list.Items, *item)
+		}
 	}
 
 	return list
 }
 
-func CompletionItem(candidate lang.CompletionCandidate, pos hcl.Pos, snippetSupport bool) lsp.CompletionItem {
+func CompletionItem(candidate lang.CompletionCandidate, pos hcl.Pos, snippetSupport bool, prefix string) *lsp.CompletionItem {
 	// TODO: deprecated / tags?
 
 	doc := ""
@@ -36,7 +40,11 @@ func CompletionItem(candidate lang.CompletionCandidate, pos hcl.Pos, snippetSupp
 
 	if snippetSupport {
 		pos, newText := candidate.Snippet(pos)
-		return lsp.CompletionItem{
+
+		if !strings.HasPrefix(newText, prefix) {
+			return nil
+		}
+		return &lsp.CompletionItem{
 			Label:            candidate.Label(),
 			Kind:             lsp.CIKField,
 			InsertTextFormat: lsp.ITFSnippet,
@@ -47,16 +55,26 @@ func CompletionItem(candidate lang.CompletionCandidate, pos hcl.Pos, snippetSupp
 					Start: lsp.Position{Line: pos.Line - 1, Character: pos.Column - 1},
 					End:   lsp.Position{Line: pos.Line - 1, Character: pos.Column - 1},
 				},
-				NewText: newText,
+				NewText: newText[len(prefix):],
 			},
 		}
 	}
 
-	return lsp.CompletionItem{
+	if !strings.HasPrefix(candidate.Label(), prefix) {
+		return nil
+	}
+	return &lsp.CompletionItem{
 		Label:            candidate.Label(),
 		Kind:             lsp.CIKField,
 		InsertTextFormat: lsp.ITFPlainText,
 		Detail:           candidate.Detail(),
 		Documentation:    doc,
+		TextEdit: &lsp.TextEdit{
+			Range: lsp.Range{
+				Start: lsp.Position{Line: pos.Line - 1, Character: pos.Column - 1},
+				End:   lsp.Position{Line: pos.Line - 1, Character: pos.Column - 1},
+			},
+			NewText: candidate.Label()[len(prefix):],
+		},
 	}
 }

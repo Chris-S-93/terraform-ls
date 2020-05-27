@@ -54,10 +54,15 @@ func (h *logHandler) TextDocumentComplete(ctx context.Context, params lsp.Comple
 	p.SetLogger(h.logger)
 	p.SetSchemaReader(sr)
 
+	token, err := ihcl.TokenAtPos(file.Lines(), fPos)
+	if err != nil {
+		return list, err
+	}
+
 	hclBlock, hclPos, err := hclFile.BlockAtPosition(fPos)
 	if err != nil {
 		if ihcl.IsNoBlockFoundErr(err) {
-			return ilsp.CompletionList(p.BlockTypeCandidates(), fPos.Position(), cc.TextDocument), nil
+			return ilsp.CompletionList(p.BlockTypeCandidates(), fPos.Position(), cc.TextDocument, token), nil
 		}
 
 		return list, fmt.Errorf("finding HCL block failed: %#v", err)
@@ -69,7 +74,7 @@ func (h *logHandler) TextDocumentComplete(ctx context.Context, params lsp.Comple
 		return list, fmt.Errorf("finding completion items failed: %w", err)
 	}
 
-	return ilsp.CompletionList(candidates, fPos.Position(), cc.TextDocument), nil
+	return ilsp.CompletionList(candidates, fPos.Position(), cc.TextDocument, token), nil
 }
 
 func (h *logHandler) completeBlock(p lang.Parser, block *hcl.Block, pos hcl.Pos) (lang.CompletionCandidates, error) {

@@ -1,9 +1,12 @@
 package hcl
 
 import (
+	"regexp"
+
 	hcllib "github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-ls/internal/filesystem"
+	"github.com/hashicorp/terraform-ls/internal/source"
 )
 
 type File interface {
@@ -68,6 +71,36 @@ func (f *file) blockAtPosition(pos hcllib.Pos) (*hcllib.Block, error) {
 	}
 
 	return block, nil
+}
+
+func TokenAtPos(lines []source.Line, filePos filesystem.FilePosition) (string, error) {
+	return tokenAtPos(lines, filePos.Position())
+}
+
+func tokenAtPos(lines []source.Line, pos hcllib.Pos) (string, error) {
+	if len(lines) == 0 {
+		if pos.Column != 1 || pos.Line != 1 {
+			return "", &InvalidHclPosErr{pos, hcllib.Range{}}
+		}
+		return "", nil
+	}
+	r := regexp.MustCompile(`\b(\w+)$`)
+	for i, srcLine := range lines {
+		if i == pos.Line-1 {
+			if srcLine.Range().End.Byte < pos.Byte || srcLine.Range().Start.Byte > pos.Byte {
+				return "", &InvalidHclPosErr{pos, srcLine.Range()}
+			}
+			content := string(srcLine.Bytes())
+			content = content[:pos.Byte-srcLine.Range().Start.Byte]
+
+			groups := r.FindStringSubmatch(content)
+			if len(groups) < 2 {
+				return "", nil
+			}
+			return groups[1], nil
+		}
+	}
+	return "", &InvalidHclPosErr{pos, hcllib.RangeBetween(lines[0].Range(), lines[len(lines)-1].Range())}
 }
 
 func posIsEqual(a, b hcllib.Pos) bool {

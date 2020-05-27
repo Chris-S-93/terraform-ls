@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform-ls/internal/filesystem"
+	"github.com/hashicorp/terraform-ls/internal/source"
 )
 
 func TestFile_BlockAtPosition(t *testing.T) {
@@ -160,6 +161,208 @@ func TestFile_BlockAtPosition(t *testing.T) {
 				t.Fatalf("Unexpected block difference: %s", diff)
 			}
 
+		})
+	}
+}
+
+func TestFile_TokenAtPos(t *testing.T) {
+	testCases := []struct {
+		name string
+
+		content string
+		pos     hcl.Pos
+
+		expectedErr   bool
+		expectedToken string
+	}{
+		{
+			name: "cursor out of range",
+			content: `provider "azure" {
+ location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   5,
+				Column: 1,
+				Byte:   0,
+			},
+			expectedErr: true,
+		},
+		{
+			name: "cursor at first",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 1,
+				Byte:   0,
+			},
+			expectedErr:   false,
+			expectedToken: "",
+		},
+		{
+			name: "cursor in a word",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 3,
+				Byte:   2,
+			},
+			expectedErr:   false,
+			expectedToken: "pr",
+		},
+		{
+			name: "cursor after a word",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 9,
+				Byte:   8,
+			},
+			expectedErr:   false,
+			expectedToken: "provider",
+		},
+		{
+			name: "cursor after a quote",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 11,
+				Byte:   10,
+			},
+			expectedErr:   false,
+			expectedToken: "",
+		},
+		{
+			name: "cursor in a quoted word",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 13,
+				Byte:   12,
+			},
+			expectedErr:   false,
+			expectedToken: "az",
+		},
+		{
+			name: "cursor after parentheses",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   1,
+				Column: 19,
+				Byte:   18,
+			},
+			expectedErr:   false,
+			expectedToken: "",
+		},
+		{
+			name: "cursor after space",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   2,
+				Column: 3,
+				Byte:   21,
+			},
+			expectedErr:   false,
+			expectedToken: "",
+		},
+		{
+			name: "cursor in a field",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   2,
+				Column: 5,
+				Byte:   23,
+			},
+			expectedErr:   false,
+			expectedToken: "lo",
+		},
+		{
+			name: "cursor after field",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   2,
+				Column: 11,
+				Byte:   29,
+			},
+			expectedErr:   false,
+			expectedToken: "location",
+		},
+		{
+			name: "cursor after dot",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   2,
+				Column: 18,
+				Byte:   36,
+			},
+			expectedErr:   false,
+			expectedToken: "",
+		},
+		{
+			name: "cursor after dot word",
+			content: `provider "azure" {
+  location = var.loc
+
+}`,
+			pos: hcl.Pos{
+				Line:   2,
+				Column: 21,
+				Byte:   39,
+			},
+			expectedErr:   false,
+			expectedToken: "loc",
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("%d-%s", i+1, tc.name), func(t *testing.T) {
+			lines := source.MakeSourceLines("test.tf", []byte(tc.content))
+
+			token, err := tokenAtPos(lines, tc.pos)
+			if err != nil {
+				if !tc.expectedErr {
+					t.Fatal(err)
+				}
+
+				return
+			}
+			if tc.expectedErr {
+				t.Fatalf("Expected error, but actual token: %q", token)
+			}
+
+			if token != tc.expectedToken {
+				t.Fatalf("expect token %q but actual %q", tc.expectedToken, token)
+			}
 		})
 	}
 }
